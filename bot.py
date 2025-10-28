@@ -1,6 +1,7 @@
 import os
 import asyncio
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 
 # Helper to split comma-separated and strip whitespace/items
 def split_env_list(var):
@@ -15,7 +16,8 @@ BLOCKED_TEXTS = split_env_list('BLOCKED_TEXTS')
 WHITELIST_TEXTS = split_env_list('WHITELIST_TEXTS')
 MEDIA_FORWARD_RESPONSE = os.getenv('MEDIA_FORWARD_RESPONSE', '')
 
-client = TelegramClient(SESSION, APP_ID, API_HASH)
+# Use StringSession (CRITICAL for cloud deployment!)
+client = TelegramClient(StringSession(SESSION), APP_ID, API_HASH)
 
 # Convert channel strings to int if they look like IDs (handles usernames too)
 def channel_parse(lst):
