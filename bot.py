@@ -1,81 +1,45 @@
-#    Copyright (c) 2021 Ayush
-#    
-#    This program is free software: you can redistribute it and/or modify  
-#    it under the terms of the GNU General Public License as published by  
-#    the Free Software Foundation, version 3.
-# 
-#    This program is distributed in the hope that it will be useful, but 
-#    WITHOUT ANY WARRANTY; without even the implied warranty of 
-#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
-#    General Public License for more details.
-# 
-#    License can be found in < https://github.com/Ayush7445/telegram-auto_forwarder/blob/main/License > .
-
-# Import necessary modules
-from telethon import TelegramClient, events
-from decouple import config
-import logging
-from telethon.sessions import StringSession
 import os
+import asyncio
+from telethon import TelegramClient, events
 
-# Configure logging
-logging.basicConfig(format='[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s', level=logging.WARNING)
+# Helper to split comma-separated and strip whitespace/items
+def split_env_list(var):
+    return [x.strip() for x in os.getenv(var, '').split(',') if x.strip()]
 
-# Print starting message
-print("Starting...")
+APP_ID = int(os.getenv('APP_ID'))
+API_HASH = os.getenv('API_HASH')
+SESSION = os.getenv('SESSION')
+FROM_CHANNELS = split_env_list('FROM_CHANNEL')
+TO_CHANNELS = split_env_list('TO_CHANNEL')
+BLOCKED_TEXTS = split_env_list('BLOCKED_TEXTS')
+WHITELIST_TEXTS = split_env_list('WHITELIST_TEXTS')
+MEDIA_FORWARD_RESPONSE = os.getenv('MEDIA_FORWARD_RESPONSE', '')
 
-# Read configuration from environment variables
-APP_ID = config("APP_ID", default=0, cast=int)
-API_HASH = config("API_HASH", default=None, cast=str)
-SESSION = config("SESSION", default="", cast=str)
-FROM_ = config("FROM_CHANNEL", default="", cast=str)
-TO_ = config("TO_CHANNEL", default="", cast=str)
+client = TelegramClient(SESSION, APP_ID, API_HASH)
 
-BLOCKED_TEXTS = config("BLOCKED_TEXTS", default="", cast=lambda x: [i.strip().lower() for i in x.split(',')])
-MEDIA_FORWARD_RESPONSE = config("MEDIA_FORWARD_RESPONSE", default="yes").lower()
+# Convert channel strings to int if they look like IDs (handles usernames too)
+def channel_parse(lst):
+    return [int(x) if x.lstrip('-').isdigit() else x for x in lst]
 
-FROM = [int(i) for i in FROM_.split()]
-TO = [int(i) for i in TO_.split()]
-
-YOUR_ADMIN_USER_ID = config("YOUR_ADMIN_USER_ID", default=0, cast=int)
-BOT_API_KEY = config("BOT_API_KEY", default="", cast=str)
-
-# Initialize Telethon client
-try:
-    steallootdealUser = TelegramClient(StringSession(SESSION), APP_ID, API_HASH)
-    steallootdealUser.start()
-except Exception as ap:
-    print(f"ERROR - {ap}")
-    exit(1)
-
-# Event handler for incoming messages
-@steallootdealUser.on(events.NewMessage(incoming=True, chats=FROM))
-async def sender_bH(event):
-    for i in TO:
+@client.on(events.NewMessage(chats=channel_parse(FROM_CHANNELS)))
+async def forward_handler(event):
+    msg_text = event.message.message or ''
+    # BLOCKLIST: Skip if contains a blocked word
+    if any(bt.lower() in msg_text.lower() for bt in BLOCKED_TEXTS):
+        return
+    # WHITELIST: If present, only allow if contains a whitelist word
+    if WHITELIST_TEXTS and not any(wt.lower() in msg_text.lower() for wt in WHITELIST_TEXTS):
+        return
+    for target in TO_CHANNELS:
         try:
-            message_text = event.raw_text.lower()
-
-            if any(blocked_text in message_text for blocked_text in BLOCKED_TEXTS):
-                print(f"Blocked message containing one of the specified texts: {event.raw_text}")
-                logging.warning(f"Blocked message containing one of the specified texts: {event.raw_text}")
-                continue
-
-            if event.media:
-                user_response = MEDIA_FORWARD_RESPONSE
-                if user_response != 'yes':
-                    print(f"Media forwarding skipped by user for message: {event.raw_text}")
-                    continue
-
-                await steallootdealUser.send_message(i, message_text, file=event.media)
-                print(f"Forwarded media message to channel {i}")
-
+            if event.message.media:
+                await client.send_message(target, MEDIA_FORWARD_RESPONSE or '[Media message]')
             else:
-                await steallootdealUser.send_message(i, message_text)
-                print(f"Forwarded text message to channel {i}")
-
+                await client.send_message(target, msg_text)
         except Exception as e:
-            print(f"Error forwarding message to channel {i}: {e}")
+            print(f"Failed to forward to {target}: {e}")
 
-# Run the bot
-print("Bot has started.")
-steallootdealUser.run_until_disconnected()
+if __name__ == '__main__':
+    print(f"Bot starting: Forwarding from {FROM_CHANNELS} to {TO_CHANNELS}")
+    with client:
+        client.loop.run_forever()
